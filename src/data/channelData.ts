@@ -5,15 +5,10 @@ import {
   getPlaylist,
   getChannelConfig,
   getOverlayConfig,
-  getBroadcastState,
   type VideoItem,
   type ChannelConfig,
   type OverlayConfig,
-  type BroadcastState,
 } from './store';
-
-export type { BroadcastState };
-export { getBroadcastState };
 
 // Re-export types and getters
 export type { VideoItem, ChannelConfig, OverlayConfig };
@@ -56,37 +51,8 @@ export function getCurrentPlaybackState(): {
   elapsedInVideo: number;
   nextVideo: VideoItem;
   progress: number;
-  mode: 'replica' | 'live';
-  isLive: boolean;
 } {
-  const pl = getPlaylist().filter(v => v.category !== 'live');
-  const broadcast = getBroadcastState();
-
-  // === MODALITA' LIVE ===
-  if (broadcast.mode === 'live' && broadcast.liveYoutubeId) {
-    const liveVideo: VideoItem = {
-      id: 'live-broadcast',
-      title: broadcast.liveTitle || 'Diretta in corso',
-      youtubeId: broadcast.liveYoutubeId,
-      duration: 99999,
-      category: 'live',
-      description: 'Diretta in corso',
-      isLive: true,
-    };
-    return {
-      currentVideo: liveVideo,
-      currentIndex: -1,
-      elapsedInVideo: broadcast.liveStartedAt
-        ? Math.floor((Date.now() - broadcast.liveStartedAt) / 1000)
-        : 0,
-      nextVideo: pl[0] || liveVideo,
-      progress: 0,
-      mode: 'live',
-      isLive: true,
-    };
-  }
-
-  // === MODALITA' REPLICA ===
+  const pl = getPlaylist();
   const totalDuration = pl.reduce((sum, v) => sum + v.duration, 0);
 
   if (totalDuration === 0 || pl.length === 0) {
@@ -98,28 +64,15 @@ export function getCurrentPlaybackState(): {
       category: 'speciale',
       description: 'Aggiungi video dal pannello admin',
     };
-    return { currentVideo: fallback, currentIndex: 0, elapsedInVideo: 0, nextVideo: fallback, progress: 0, mode: 'replica', isLive: false };
+    return {
+      currentVideo: fallback,
+      currentIndex: 0,
+      elapsedInVideo: 0,
+      nextVideo: fallback,
+      progress: 0,
+    };
   }
 
-  // Video forzato dall'admin?
-  if (broadcast.forcedVideoId && broadcast.forcedVideoIndex !== null) {
-    const idx = broadcast.forcedVideoIndex;
-    const forced = pl[idx];
-    if (forced) {
-      const nextIndex = (idx + 1) % pl.length;
-      return {
-        currentVideo: forced,
-        currentIndex: idx,
-        elapsedInVideo: 0,
-        nextVideo: pl[nextIndex],
-        progress: 0,
-        mode: 'replica',
-        isLive: false,
-      };
-    }
-  }
-
-  // Calcolo normale basato sul tempo
   const nowSeconds = Math.floor(Date.now() / 1000);
   const positionInLoop = nowSeconds % totalDuration;
 
@@ -134,8 +87,6 @@ export function getCurrentPlaybackState(): {
         elapsedInVideo: elapsed,
         nextVideo: pl[nextIndex],
         progress: (elapsed / pl[i].duration) * 100,
-        mode: 'replica',
-        isLive: false,
       };
     }
     accumulated += pl[i].duration;
@@ -147,8 +98,6 @@ export function getCurrentPlaybackState(): {
     elapsedInVideo: 0,
     nextVideo: pl[1] || pl[0],
     progress: 0,
-    mode: 'replica',
-    isLive: false,
   };
 }
 

@@ -127,8 +127,6 @@ export async function pullFromFirestore(): Promise<{ success: boolean; message: 
     if (playlist) localStorage.setItem('ctv24_playlist', JSON.stringify((playlist as { items: unknown }).items));
     if (config) localStorage.setItem('ctv24_config', JSON.stringify(config));
     if (overlay) localStorage.setItem('ctv24_overlay', JSON.stringify(overlay));
-    const broadcast = await readDoc('broadcast');
-    if (broadcast) localStorage.setItem('ctv24_broadcast', JSON.stringify(broadcast));
 
     window.dispatchEvent(new CustomEvent('ctv24-data-change'));
     return { success: true, message: '✅ Dati caricati da Firebase!' };
@@ -147,8 +145,6 @@ export async function pushToFirestore(): Promise<{ success: boolean; message: st
     await writeDoc('playlist', { items: playlist ? JSON.parse(playlist) : [] });
     if (config) await writeDoc('config', JSON.parse(config));
     if (overlay) await writeDoc('overlay', JSON.parse(overlay));
-    const broadcast = localStorage.getItem('ctv24_broadcast');
-    if (broadcast) await writeDoc('broadcast', JSON.parse(broadcast));
 
     return { success: true, message: '✅ Dati salvati su Firebase!' };
   } catch (e) {
@@ -161,12 +157,11 @@ export function startRealtimeSync(onChange: () => void): void {
   if (!db) return;
   stopRealtimeSync();
 
-  const docs = ['playlist', 'config', 'overlay', 'broadcast'];
+  const docs = ['playlist', 'config', 'overlay'];
   docs.forEach((docId) => {
     if (!db) return;
     const ref = doc(db, COLLECTION, docId);
     const unsub = onSnapshot(ref, (snap) => {
-      if (docId === 'broadcast' && !snap.exists()) return;
       if (!snap.exists()) return;
       const data = snap.data();
       if (docId === 'playlist') {
@@ -184,16 +179,6 @@ export function startRealtimeSync(onChange: () => void): void {
 export function stopRealtimeSync(): void {
   unsubscribers.forEach((u) => u());
   unsubscribers = [];
-}
-
-
-// Salva solo lo stato broadcast su Firestore (veloce, usata dalla regia)
-export async function pushBroadcastToFirestore(state: unknown): Promise<void> {
-  try {
-    await writeDoc('broadcast', state as Record<string, unknown>);
-  } catch (e) {
-    console.warn('[Firebase] Errore salvataggio broadcast:', e);
-  }
 }
 
 // ============================================================

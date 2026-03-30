@@ -11,7 +11,6 @@ import {
   startRealtimeSync,
   stopRealtimeSync,
   testConnection,
-  pushBroadcastToFirestore,
   type FirebaseConfig,
   type FirebaseSyncStatus,
 } from '../firebase';
@@ -19,11 +18,10 @@ import {
   getPlaylist, savePlaylist,
   getOverlayConfig, saveOverlayConfig,
   getChannelConfig, saveChannelConfig,
-  getBroadcastState, saveBroadcastState, setLiveMode, setReplicaMode, forceVideo, clearForcedVideo,
   checkAuth, isAuthenticated, setAuthenticated,
   extractYouTubeId, extractPlaylistId, parseDuration, formatDurationDisplay, generateId,
   categoryOptions,
-  type VideoItem, type OverlayConfig, type ChannelConfig, type BroadcastState,
+  type VideoItem, type OverlayConfig, type ChannelConfig,
 } from '../data/store';
 
 // ============================================================
@@ -103,7 +101,7 @@ export default function AdminPage({ onClose }: { onClose: () => void }) {
 }
 
 function AdminPanel({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<'regia' | 'videos' | 'overlay' | 'share' | 'settings' | 'firebase'>('regia');
+  const [tab, setTab] = useState<'videos' | 'overlay' | 'share' | 'settings' | 'firebase'>('videos');
   const [playlist, setPlaylistState] = useState(getPlaylist());
   const [overlay, setOverlayState] = useState(getOverlayConfig());
   const [config, setConfigState] = useState(getChannelConfig());
@@ -117,7 +115,6 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const handleLogout = () => { setAuthenticated(false); onClose(); };
 
   const tabs = [
-    { key: 'regia' as const, icon: '🎬', label: 'Regia' },
     { key: 'videos' as const, icon: '📹', label: 'Video' },
     { key: 'overlay' as const, icon: '🖼️', label: 'Overlay' },
     { key: 'share' as const, icon: '📡', label: 'Condividi' },
@@ -163,7 +160,6 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="mt-6 pb-16">
-          {tab === 'regia' && <RegiaTab playlist={playlist} />}
           {tab === 'videos' && <VideosTab playlist={playlist} onSave={handleSavePlaylist} />}
           {tab === 'overlay' && <OverlayTab overlay={overlay} onSave={handleSaveOverlay} />}
           {tab === 'share' && <ShareTab playlist={playlist} />}
@@ -1487,197 +1483,6 @@ function FirebaseTab() {
           >
             🔌 Disconnetti Firebase
           </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
-// REGIA TAB
-// ============================================================
-function RegiaTab({ playlist }: { playlist: VideoItem[] }) {
-  const replicaPlaylist = playlist.filter(v => v.category !== 'live');
-  const [broadcast, setBroadcast] = useState<BroadcastState>(getBroadcastState());
-  const [liveInput, setLiveInput] = useState('');
-  const [liveTitle, setLiveTitle] = useState('');
-  const [toast, setToast] = useState('');
-
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
-
-  // Aggiorna stato locale quando Firebase cambia
-  useEffect(() => {
-    const update = () => setBroadcast(getBroadcastState());
-    window.addEventListener('ctv24-data-change', update);
-    return () => window.removeEventListener('ctv24-data-change', update);
-  }, []);
-
-  const saveBroadcast = (state: BroadcastState) => {
-    saveBroadcastState(state);
-    setBroadcast(state);
-    // Sincronizza subito su Firebase se connesso
-    pushBroadcastToFirestore(state);
-  };
-
-  const handleGoLive = () => {
-    const ytId = extractYouTubeId(liveInput.trim());
-    if (!ytId) { showToast('❌ Link YouTube non valido'); return; }
-    const title = liveTitle.trim() || '🔴 Diretta in corso';
-    setLiveMode(ytId, title);
-    saveBroadcast({ mode: 'live', forcedVideoId: null, forcedVideoIndex: null, liveYoutubeId: ytId, liveTitle: title, liveStartedAt: Date.now(), updatedAt: Date.now() });
-    setLiveInput('');
-    showToast('🔴 Live avviato!');
-  };
-
-  const handleStopLive = () => {
-    setReplicaMode();
-    saveBroadcast({ mode: 'replica', forcedVideoId: null, forcedVideoIndex: null, liveYoutubeId: null, liveTitle: '', liveStartedAt: null, updatedAt: Date.now() });
-    showToast('✅ Tornato in modalità Replica');
-  };
-
-  const handleForceVideo = (index: number, video: VideoItem) => {
-    forceVideo(index, video.id);
-    saveBroadcast({ mode: 'replica', forcedVideoId: video.id, forcedVideoIndex: index, liveYoutubeId: null, liveTitle: '', liveStartedAt: null, updatedAt: Date.now() });
-    showToast(`▶ "${video.title}" mandato in onda!`);
-  };
-
-  const handleSkipNext = () => {
-    if (replicaPlaylist.length === 0) return;
-    const currentIdx = broadcast.forcedVideoIndex ?? 0;
-    const nextIdx = (currentIdx + 1) % replicaPlaylist.length;
-    const nextVideo = replicaPlaylist[nextIdx];
-    handleForceVideo(nextIdx, nextVideo);
-    showToast(`⏭ Passato a "${nextVideo.title}"`);
-  };
-
-  const handleBackToAuto = () => {
-    clearForcedVideo();
-    saveBroadcast({ ...broadcast, forcedVideoId: null, forcedVideoIndex: null, updatedAt: Date.now() });
-    showToast('🔄 Tornato alla rotazione automatica');
-  };
-
-  const isLive = broadcast.mode === 'live';
-  const isForced = !isLive && !!broadcast.forcedVideoId;
-
-  return (
-    <div className="max-w-2xl space-y-6">
-
-      {/* STATO ATTUALE */}
-      <div className={`rounded-2xl p-5 border-2 ${isLive ? 'bg-red-500/10 border-red-500/40' : 'bg-green-500/10 border-green-500/20'}`}>
-        <div className="flex items-center gap-3 mb-1">
-          <span className={`w-3 h-3 rounded-full ${isLive ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
-          <span className={`text-lg font-black ${isLive ? 'text-red-400' : 'text-green-400'}`}>
-            {isLive ? '🔴 LIVE IN CORSO' : '📺 MODALITÀ REPLICA'}
-          </span>
-        </div>
-        {isLive && (
-          <p className="text-sm text-red-300 ml-6">{broadcast.liveTitle}</p>
-        )}
-        {isForced && (
-          <p className="text-xs text-green-400 ml-6 mt-1">
-            ▶ Video forzato: <strong>{replicaPlaylist[broadcast.forcedVideoIndex!]?.title}</strong>
-          </p>
-        )}
-        {!isLive && !isForced && (
-          <p className="text-xs text-green-500/70 ml-6 mt-1">Rotazione automatica basata sul tempo</p>
-        )}
-      </div>
-
-      {/* CONTROLLI REPLICA */}
-      {!isLive && (
-        <div className="bg-surface-card rounded-2xl p-6 border border-white/5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white">📺 Controlli Replica</h3>
-            {isForced && (
-              <button onClick={handleSkipNext}
-                className="flex items-center gap-2 bg-brand/20 hover:bg-brand/30 text-brand border border-brand/30 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
-                ⏭ Video Successivo
-              </button>
-            )}
-          </div>
-
-          {isForced && (
-            <button onClick={handleBackToAuto}
-              className="w-full bg-surface-hover hover:bg-white/10 text-gray-400 hover:text-white border border-white/10 py-2.5 rounded-xl text-sm font-medium transition-colors">
-              🔄 Torna alla rotazione automatica
-            </button>
-          )}
-
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {replicaPlaylist.length === 0 && (
-              <p className="text-gray-500 text-sm text-center py-4">Nessun video in playlist</p>
-            )}
-            {replicaPlaylist.map((video, index) => {
-              const isCurrent = broadcast.forcedVideoId === video.id;
-              return (
-                <div key={video.id}
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-colors ${
-                    isCurrent ? 'bg-brand/10 border-brand/30' : 'bg-surface hover:bg-surface-hover border-white/5'
-                  }`}>
-                  <span className="text-xs text-gray-600 font-mono w-6 flex-shrink-0">{index + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${isCurrent ? 'text-brand' : 'text-gray-200'}`}>
-                      {video.title}
-                    </p>
-                    <p className="text-xs text-gray-500">{formatDurationDisplay(video.duration)}</p>
-                  </div>
-                  {isCurrent ? (
-                    <span className="text-xs bg-brand text-white px-2 py-0.5 rounded-full font-bold flex-shrink-0">▶ In onda</span>
-                  ) : (
-                    <button onClick={() => handleForceVideo(index, video)}
-                      className="flex-shrink-0 text-xs bg-surface-hover hover:bg-brand/20 hover:text-brand text-gray-400 border border-white/10 hover:border-brand/30 px-3 py-1.5 rounded-lg font-medium transition-colors">
-                      ▶ Manda ora
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* MODALITA' LIVE */}
-      <div className={`bg-surface-card rounded-2xl p-6 border ${isLive ? 'border-red-500/30' : 'border-white/5'} space-y-4`}>
-        <h3 className="text-base font-bold text-white">🔴 Modalità Live</h3>
-
-        {isLive ? (
-          <div className="space-y-4">
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
-              <p className="text-red-400 font-bold text-sm mb-1">🔴 Live attivo</p>
-              <p className="text-gray-300 text-sm">{broadcast.liveTitle}</p>
-              <p className="text-xs text-gray-500 font-mono mt-1">ID: {broadcast.liveYoutubeId}</p>
-            </div>
-            <button onClick={handleStopLive}
-              className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-red-500/20">
-              ⏹ Ferma Live — Torna in Replica
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-gray-500">Incolla il link del live YouTube. Tutti i dispositivi passeranno immediatamente alla diretta.</p>
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">Titolo della diretta</label>
-              <input type="text" value={liveTitle} onChange={(e) => setLiveTitle(e.target.value)}
-                className="w-full bg-surface rounded-lg px-4 py-3 text-white border border-white/10 focus:border-red-500 focus:outline-none text-sm"
-                placeholder="Es: Partita — Cestistica vs Rivali" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5">Link YouTube Live</label>
-              <input type="text" value={liveInput} onChange={(e) => setLiveInput(e.target.value)}
-                className="w-full bg-surface rounded-lg px-4 py-3 text-white border border-white/10 focus:border-red-500 focus:outline-none text-sm font-mono"
-                placeholder="https://youtube.com/live/..." />
-            </div>
-            <button onClick={handleGoLive} disabled={!liveInput.trim()}
-              className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-30 shadow-lg shadow-red-500/20">
-              🔴 Vai in Live
-            </button>
-          </div>
-        )}
-      </div>
-
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-surface-card border border-white/10 text-white px-6 py-3 rounded-2xl shadow-2xl text-sm font-medium z-50 animate-pulse">
-          {toast}
         </div>
       )}
     </div>

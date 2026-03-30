@@ -31,17 +31,6 @@ export interface OverlayConfig {
   marginY: number;
 }
 
-
-export interface BroadcastState {
-  mode: 'replica' | 'live';       // modalità corrente
-  forcedVideoId: string | null;   // ID video forzato (replica)
-  forcedVideoIndex: number | null;// indice nella playlist
-  liveYoutubeId: string | null;   // YouTube ID del live
-  liveTitle: string;              // titolo del live
-  liveStartedAt: number | null;   // timestamp avvio live
-  updatedAt: number;              // timestamp ultimo aggiornamento
-}
-
 // ============================================================
 // STORAGE KEYS
 // ============================================================
@@ -49,7 +38,6 @@ const KEYS = {
   playlist: 'ctv24_playlist',
   config: 'ctv24_config',
   overlay: 'ctv24_overlay',
-  broadcast: 'ctv24_broadcast',
 };
 
 // ============================================================
@@ -129,17 +117,6 @@ export const defaultOverlay: OverlayConfig = {
   marginY: 16,
 };
 
-
-export const defaultBroadcast: BroadcastState = {
-  mode: 'replica',
-  forcedVideoId: null,
-  forcedVideoIndex: null,
-  liveYoutubeId: null,
-  liveTitle: '',
-  liveStartedAt: null,
-  updatedAt: Date.now(),
-};
-
 // ============================================================
 // GETTERS
 // ============================================================
@@ -186,66 +163,6 @@ export function saveChannelConfig(config: ChannelConfig): void {
 export function saveOverlayConfig(config: OverlayConfig): void {
   localStorage.setItem(KEYS.overlay, JSON.stringify(config));
   window.dispatchEvent(new CustomEvent('ctv24-data-change'));
-}
-
-
-export function getBroadcastState(): BroadcastState {
-  try {
-    const stored = localStorage.getItem(KEYS.broadcast);
-    if (stored) return { ...defaultBroadcast, ...JSON.parse(stored) };
-  } catch { /* ignore */ }
-  return { ...defaultBroadcast };
-}
-
-export function saveBroadcastState(state: BroadcastState): void {
-  localStorage.setItem(KEYS.broadcast, JSON.stringify(state));
-  window.dispatchEvent(new CustomEvent('ctv24-data-change'));
-}
-
-export function setLiveMode(youtubeId: string, title: string): void {
-  saveBroadcastState({
-    mode: 'live',
-    forcedVideoId: null,
-    forcedVideoIndex: null,
-    liveYoutubeId: youtubeId,
-    liveTitle: title,
-    liveStartedAt: Date.now(),
-    updatedAt: Date.now(),
-  });
-}
-
-export function setReplicaMode(): void {
-  saveBroadcastState({
-    mode: 'replica',
-    forcedVideoId: null,
-    forcedVideoIndex: null,
-    liveYoutubeId: null,
-    liveTitle: '',
-    liveStartedAt: null,
-    updatedAt: Date.now(),
-  });
-}
-
-export function forceVideo(index: number, videoId: string): void {
-  saveBroadcastState({
-    mode: 'replica',
-    forcedVideoId: videoId,
-    forcedVideoIndex: index,
-    liveYoutubeId: null,
-    liveTitle: '',
-    liveStartedAt: null,
-    updatedAt: Date.now(),
-  });
-}
-
-export function clearForcedVideo(): void {
-  const current = getBroadcastState();
-  saveBroadcastState({
-    ...current,
-    forcedVideoId: null,
-    forcedVideoIndex: null,
-    updatedAt: Date.now(),
-  });
 }
 
 // ============================================================

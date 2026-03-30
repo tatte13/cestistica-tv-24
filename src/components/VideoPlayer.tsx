@@ -67,12 +67,10 @@ export default function VideoPlayer({ embed = false, onVideoChange }: Props) {
       check();
       // Ricalcola lo stato di playback con la playlist aggiornata da Firebase
       const newState = getCurrentPlaybackState();
-      // Aggiorna se cambia il video (es. switch live/replica o video forzato)
       if (newState.currentVideo.id !== currentVideoRef.current.id) {
         setCurrentVideo(newState.currentVideo);
         setProgress(newState.progress);
         setElapsedInVideo(newState.elapsedInVideo);
-        lastVideoIdRef.current = newState.currentVideo.id;
       }
     };
     window.addEventListener('ctv24-data-change', handler);
