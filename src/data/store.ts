@@ -11,6 +11,15 @@ export interface VideoItem {
   description: string;
   thumbnail?: string;
   isLive?: boolean;
+  /**
+   * Orario programmato (palinsesto manuale), formato datetime-local
+   * es. "2026-09-20T19:30". Se impostato, questo video va in onda
+   * esattamente a quest'orario interrompendo la rotazione automatica
+   * per tutta la sua `duration`. Per una live, `duration` funge da
+   * durata massima di sicurezza: la diretta termina prima se viene
+   * rilevata la fine dello stream (vedi markLiveStreamEnded).
+   */
+  scheduledStart?: string;
 }
 
 export interface ChannelConfig {
@@ -185,6 +194,43 @@ export function setAuthenticated(value: boolean): void {
   } else {
     sessionStorage.removeItem('ctv24_admin_auth');
   }
+}
+
+// ============================================================
+// PALINSESTO — RILEVAMENTO FINE DIRETTA
+// ============================================================
+// Quando una live programmata (scheduledStart) termina, il player
+// lo segnala qui. Il valore è la chiave univoca "videoId|scheduledStart"
+// così se lo stesso slot live viene riprogrammato in futuro con un
+// nuovo orario, il vecchio "terminato" non blocca la nuova diretta.
+const LIVE_ENDED_KEY = 'ctv24_live_ended';
+
+function liveEndedStorageKey(videoId: string, scheduledStart: string): string {
+  return `${videoId}|${scheduledStart}`;
+}
+
+function readLiveEndedMap(): Record<string, number> {
+  try {
+    const stored = localStorage.getItem(LIVE_ENDED_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch { /* ignore */ }
+  return {};
+}
+
+export function markLiveStreamEnded(videoId: string, scheduledStart: string): void {
+  const map = readLiveEndedMap();
+  const key = liveEndedStorageKey(videoId, scheduledStart);
+  if (map[key]) return;
+  map[key] = Date.now();
+  // Pulizia: rimuove voci più vecchie di 7 giorni per non far crescere il localStorage
+  const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  Object.keys(map).forEach((k) => { if (map[k] < weekAgo) delete map[k]; });
+  try { localStorage.setItem(LIVE_ENDED_KEY, JSON.stringify(map)); } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent('ctv24-data-change'));
+}
+
+export function isLiveStreamEnded(videoId: string, scheduledStart: string): boolean {
+  return !!readLiveEndedMap()[liveEndedStorageKey(videoId, scheduledStart)];
 }
 
 // ============================================================

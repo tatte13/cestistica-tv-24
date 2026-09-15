@@ -186,7 +186,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
   const [showPlaylistImport, setShowPlaylistImport] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ youtubeUrl: '', title: '', duration: '', category: 'highlights' as VideoItem['category'], description: '', isLive: false });
+  const [form, setForm] = useState({ youtubeUrl: '', title: '', duration: '', category: 'highlights' as VideoItem['category'], description: '', isLive: false, scheduledStart: '' });
   const [formError, setFormError] = useState('');
 
   // Playlist import state
@@ -199,7 +199,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
   const [bulkUrls, setBulkUrls] = useState('');
 
   const resetForm = () => {
-    setForm({ youtubeUrl: '', title: '', duration: '', category: 'highlights', description: '', isLive: false });
+    setForm({ youtubeUrl: '', title: '', duration: '', category: 'highlights', description: '', isLive: false, scheduledStart: '' });
     setFormError('');
     setEditingId(null);
     setShowForm(false);
@@ -213,6 +213,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
       category: video.category,
       description: video.description,
       isLive: video.isLive || false,
+      scheduledStart: video.scheduledStart || '',
     });
     setEditingId(video.id);
     setShowForm(true);
@@ -224,7 +225,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
     const youtubeId = extractYouTubeId(form.youtubeUrl);
     if (!youtubeId) { setFormError('URL o ID YouTube non valido'); return; }
     if (!form.title.trim()) { setFormError('Inserisci un titolo'); return; }
-    const duration = form.isLive ? (parseDuration(form.duration) || 3600) : parseDuration(form.duration);
+    const duration = form.isLive ? (parseDuration(form.duration) || 9000) : parseDuration(form.duration);
     if (!duration) { setFormError('Durata non valida (usa MM:SS o HH:MM:SS o secondi)'); return; }
 
     const videoData: VideoItem = {
@@ -235,6 +236,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
       category: form.isLive ? 'live' : form.category,
       description: form.description.trim(),
       isLive: form.isLive,
+      scheduledStart: form.scheduledStart || undefined,
     };
 
     if (editingId) {
@@ -397,6 +399,10 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
   const detectedId = form.youtubeUrl ? extractYouTubeId(form.youtubeUrl) : null;
   const liveCount = playlist.filter(v => v.isLive).length;
   const vodCount = playlist.length - liveCount;
+  const scheduledItems = playlist
+    .filter((v) => v.scheduledStart)
+    .slice()
+    .sort((a, b) => new Date(a.scheduledStart!).getTime() - new Date(b.scheduledStart!).getTime());
 
   return (
     <div className="space-y-6">
@@ -423,7 +429,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
             className="bg-gradient-to-r from-brand to-green-600 hover:from-brand-dark hover:to-green-700 text-white font-bold px-5 py-3 rounded-xl transition-all shadow-lg shadow-brand/20 flex items-center gap-2 text-sm">
             ➕ Aggiungi Video
           </button>
-          <button onClick={() => { resetForm(); setForm(f => ({ ...f, isLive: true, category: 'live', duration: '1:00:00' })); setShowForm(true); }}
+          <button onClick={() => { resetForm(); setForm(f => ({ ...f, isLive: true, category: 'live', duration: '2:30:00' })); setShowForm(true); }}
             className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold px-5 py-3 rounded-xl transition-all shadow-lg shadow-red-500/20 flex items-center gap-2 text-sm">
             🔴 Aggiungi Live
           </button>
@@ -545,7 +551,7 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
 
           {/* Live Toggle */}
           <div className={`rounded-xl p-4 border-2 transition-all cursor-pointer ${form.isLive ? 'bg-red-500/10 border-red-500/40' : 'bg-surface border-white/5 hover:border-white/15'}`}
-            onClick={() => setForm({ ...form, isLive: !form.isLive, category: !form.isLive ? 'live' : (form.category === 'live' ? 'highlights' : form.category), duration: !form.isLive && !form.duration ? '1:00:00' : form.duration })}>
+            onClick={() => setForm({ ...form, isLive: !form.isLive, category: !form.isLive ? 'live' : (form.category === 'live' ? 'highlights' : form.category), duration: !form.isLive && !form.duration ? '2:30:00' : form.duration })}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${form.isLive ? 'bg-red-500/30' : 'bg-surface-hover'}`}>
@@ -584,12 +590,17 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-400 mb-1.5">
-                {form.isLive ? 'Durata slot' : 'Durata'} {!form.isLive && <span className="text-red-400">*</span>}
+                {form.isLive ? 'Durata massima (di sicurezza)' : 'Durata'} {!form.isLive && <span className="text-red-400">*</span>}
                 <span className="text-gray-600 font-normal ml-1">(MM:SS o HH:MM:SS)</span>
               </label>
               <input type="text" value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })}
                 className="w-full bg-surface rounded-lg px-4 py-3 text-white border border-white/10 focus:border-brand focus:outline-none"
-                placeholder={form.isLive ? '1:00:00' : '10:30'} />
+                placeholder={form.isLive ? '2:30:00' : '10:30'} />
+              {form.isLive && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Tetto massimo di sicurezza: la diretta si interrompe qui anche se non rileviamo la fine dello stream. Meglio abbondare (es. 2:30:00).
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-400 mb-1.5">Categoria</label>
@@ -613,6 +624,39 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="w-full bg-surface rounded-lg px-4 py-3 text-white border border-white/10 focus:border-brand focus:outline-none resize-none" rows={2}
               placeholder="Breve descrizione del video" />
+          </div>
+
+          {/* Palinsesto — orario programmato */}
+          <div className="rounded-xl p-4 border border-white/10 bg-surface space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-300">
+                📅 Programmazione orario {form.isLive && <span className="text-red-400">(consigliata per le live)</span>}
+              </label>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {form.isLive
+                  ? "Imposta l'orario esatto in cui la diretta deve iniziare: da quel momento interromperà la rotazione automatica finché non rileviamo che è terminata (o fino alla durata massima impostata sopra)."
+                  : 'Imposta un orario esatto per andare in onda a quel momento, interrompendo la rotazione automatica per la durata indicata sopra. Lascia vuoto per la normale rotazione automatica.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="datetime-local"
+                value={form.scheduledStart}
+                onChange={(e) => setForm({ ...form, scheduledStart: e.target.value })}
+                className="flex-1 bg-surface-hover rounded-lg px-4 py-3 text-white border border-white/10 focus:border-brand focus:outline-none text-sm"
+              />
+              {form.scheduledStart && (
+                <button type="button" onClick={() => setForm({ ...form, scheduledStart: '' })}
+                  className="text-xs text-gray-400 hover:text-white bg-surface-hover px-3 py-3 rounded-lg transition-colors whitespace-nowrap">
+                  ✕ Rimuovi
+                </button>
+              )}
+            </div>
+            {form.isLive && !form.scheduledStart && (
+              <p className="text-[11px] text-amber-400/90">
+                ⚠️ Senza un orario, la diretta entra nella normale rotazione automatica come gli altri video (comportamento precedente).
+              </p>
+            )}
           </div>
 
           {/* Thumbnail preview */}
@@ -647,6 +691,56 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
               Annulla
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Palinsesto — slot programmati manualmente */}
+      {scheduledItems.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2 mb-3">
+            📅 Palinsesto — orari programmati ({scheduledItems.length})
+          </h3>
+          {scheduledItems.map((video) => {
+            const cat = categoryOptions.find((c) => c.value === video.category);
+            const start = new Date(video.scheduledStart!);
+            const end = new Date(start.getTime() + video.duration * 1000);
+            const isPast = end.getTime() < Date.now();
+            return (
+              <div key={video.id} className={`bg-surface-card rounded-xl p-3 md:p-4 border flex items-center gap-3 md:gap-4 transition-colors ${isPast ? 'border-white/5 opacity-50' : 'border-brand/20'}`}>
+                <div className="flex-shrink-0 text-center w-16">
+                  <p className="text-white font-bold text-sm leading-tight">{start.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })}</p>
+                  <p className="text-brand font-mono text-sm leading-tight">{start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-medium text-sm truncate">{video.title}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {video.isLive && (
+                      <span className="text-[9px] text-red-400 font-black uppercase flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" /> LIVE
+                      </span>
+                    )}
+                    {cat && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide" style={{ backgroundColor: cat.color + '20', color: cat.color }}>
+                        {cat.label}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-gray-500">
+                      {isPast ? 'terminato alle' : 'fino alle (max)'} {end.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => handleEdit(video)} className="text-gray-400 hover:text-brand transition-colors p-2 rounded-lg hover:bg-brand/10" title="Modifica orario">
+                    ✏️
+                  </button>
+                  <button onClick={() => onSave(playlist.map((v) => (v.id === video.id ? { ...v, scheduledStart: undefined } : v)))}
+                    className="text-gray-400 hover:text-amber-400 transition-colors p-2 rounded-lg hover:bg-amber-500/10" title="Rimuovi dalla programmazione">
+                    📅✕
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -702,8 +796,13 @@ function VideosTab({ playlist, onSave }: { playlist: VideoItem[]; onSave: (p: Vi
                       style={{ backgroundColor: cat.color + '20', color: cat.color }}>{cat.label}</span>
                   )}
                   <span className="text-[10px] text-gray-500 font-mono bg-surface px-1.5 py-0.5 rounded">
-                    {video.isLive ? `Slot: ${formatDurationDisplay(video.duration)}` : formatDurationDisplay(video.duration)}
+                    {video.isLive ? `Max: ${formatDurationDisplay(video.duration)}` : formatDurationDisplay(video.duration)}
                   </span>
+                  {video.scheduledStart && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-brand/20 text-brand flex items-center gap-1">
+                      📅 {new Date(video.scheduledStart).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1043,7 +1142,7 @@ function OverlayTab({ overlay, onSave }: { overlay: OverlayConfig; onSave: (o: O
           {local.enabled && (local.imageUrl || local.text) && (
             <div className="absolute z-30 pointer-events-none transition-all duration-300" style={posStyle}>
               {local.imageUrl ? (
-                <img src={local.imageUrl} alt="Logo" style={{ width: local.width }} className="object-contain drop-shadow-2xl"
+                <img src={local.imageUrl} alt="Logo" style={{ width: local.width, maxWidth: 'none', height: 'auto', flexShrink: 0 }} className="object-contain drop-shadow-2xl"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               ) : local.text ? (
                 <div className="bg-black/60 backdrop-blur-md rounded-lg px-3 py-1.5 text-white font-black drop-shadow-2xl whitespace-nowrap"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentPlaybackState, getOverlayConfig, type VideoItem } from '../data/channelData';
+import { getCurrentPlaybackState, getOverlayConfig, markLiveStreamEnded, type VideoItem } from '../data/channelData';
 import LiveBadge from './LiveBadge';
 
 declare global {
@@ -59,23 +59,57 @@ export default function VideoPlayer({ embed = false, onVideoChange }: Props) {
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   useEffect(() => { currentVideoRef.current = currentVideo; }, [currentVideo]);
 
-  // Overlay + playlist reload quando i dati cambiano (es. sync Firebase)
+  // Passa a un nuovo video nel player esistente — nessun reload dell'iframe!
+  // Condiviso da tick() e dall'handler di ctv24-data-change così un cambio
+  // (nuovo slot di palinsesto, fine diretta rilevata, sync Firebase) si
+  // applica sempre nello stesso identico modo.
+  const switchToVideo = useCallback((state: ReturnType<typeof getCurrentPlaybackState>) => {
+    lastVideoIdRef.current = state.currentVideo.id;
+    setCurrentVideo(state.currentVideo);
+    setProgress(state.progress);
+    setElapsedInVideo(state.elapsedInVideo);
+    setIsLoading(true);
+    onVideoChange?.(state.currentVideo);
+
+    if (playerRef.current) {
+      try {
+        const startSeconds = state.currentVideo.isLive ? 0 : Math.floor(state.elapsedInVideo);
+        playerRef.current.loadVideoById({
+          videoId: state.currentVideo.youtubeId,
+          startSeconds,
+        });
+        // Restore mute state after loading new video
+        setTimeout(() => {
+          if (playerRef.current) {
+            if (isMutedRef.current) {
+              playerRef.current.mute();
+            } else {
+              playerRef.current.unMute();
+            }
+          }
+        }, 500);
+      } catch { /* ignore */ }
+    }
+  }, [onVideoChange]);
+
+  // Overlay + playlist reload quando i dati cambiano (es. sync Firebase,
+  // fine di una diretta programmata rilevata dal player, palinsesto)
   useEffect(() => {
     const check = () => { setOverlay(getOverlayConfig()); setOverlayImgError(false); };
-    const interval = setInterval(check, 1000);
     const handler = () => {
       check();
-      // Ricalcola lo stato di playback con la playlist aggiornata da Firebase
       const newState = getCurrentPlaybackState();
-      if (newState.currentVideo.id !== currentVideoRef.current.id) {
-        setCurrentVideo(newState.currentVideo);
+      if (newState.currentVideo.id !== lastVideoIdRef.current) {
+        switchToVideo(newState);
+      } else {
         setProgress(newState.progress);
         setElapsedInVideo(newState.elapsedInVideo);
       }
     };
+    const interval = setInterval(check, 1000);
     window.addEventListener('ctv24-data-change', handler);
     return () => { clearInterval(interval); window.removeEventListener('ctv24-data-change', handler); };
-  }, []);
+  }, [switchToVideo]);
 
   // Initialize YouTube Player
   useEffect(() => {
@@ -130,8 +164,26 @@ export default function VideoPlayer({ embed = false, onVideoChange }: Props) {
           },
           onStateChange: (event: YT.OnStateChangeEvent) => {
             if (destroyed) return;
-            // If video ended or errored, check sync
-            if (event.data === window.YT.PlayerState.ENDED || event.data === window.YT.PlayerState.PAUSED) {
+            const video = currentVideoRef.current;
+            const isScheduledLive = !!(video.isLive && video.scheduledStart);
+
+            if (event.data === window.YT.PlayerState.ENDED) {
+              if (isScheduledLive && video.scheduledStart) {
+                // La diretta programmata è terminata: lo segnaliamo così il
+                // palinsesto torna alla rotazione automatica (o al prossimo
+                // slot programmato) invece di farla ripartire da capo.
+                markLiveStreamEnded(video.id, video.scheduledStart);
+              } else {
+                // Video normale: riprova a farlo partire in attesa che il
+                // prossimo tick sincronizzi il player col video corretto.
+                setTimeout(() => {
+                  if (!destroyed && playerRef.current) {
+                    try { playerRef.current.playVideo(); } catch { /* ignore */ }
+                  }
+                }, 500);
+              }
+            }
+            if (event.data === window.YT.PlayerState.PAUSED) {
               // Resume playing if paused unexpectedly
               setTimeout(() => {
                 if (!destroyed && playerRef.current) {
@@ -148,7 +200,11 @@ export default function VideoPlayer({ embed = false, onVideoChange }: Props) {
           },
           onError: () => {
             if (destroyed) return;
-            // On error, try to move to next video
+            const video = currentVideoRef.current;
+            if (video.isLive && video.scheduledStart) {
+              // Stream non disponibile (es. terminato o rimosso): la consideriamo conclusa.
+              markLiveStreamEnded(video.id, video.scheduledStart);
+            }
             setIsLoading(false);
           },
         },
@@ -165,40 +221,16 @@ export default function VideoPlayer({ embed = false, onVideoChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync tick — checks video changes and updates progress
+  // Sync tick — checks video changes and updates progress every second
   const tick = useCallback(() => {
     const state = getCurrentPlaybackState();
-    setProgress(state.progress);
-    setElapsedInVideo(state.elapsedInVideo);
-
     if (state.currentVideo.id !== lastVideoIdRef.current) {
-      lastVideoIdRef.current = state.currentVideo.id;
-      setCurrentVideo(state.currentVideo);
-      setIsLoading(true);
-      onVideoChange?.(state.currentVideo);
-
-      // Load new video in existing player — no iframe reload!
-      if (playerRef.current) {
-        try {
-          const startSeconds = state.currentVideo.isLive ? 0 : Math.floor(state.elapsedInVideo);
-          playerRef.current.loadVideoById({
-            videoId: state.currentVideo.youtubeId,
-            startSeconds,
-          });
-          // Restore mute state after loading new video
-          setTimeout(() => {
-            if (playerRef.current) {
-              if (isMutedRef.current) {
-                playerRef.current.mute();
-              } else {
-                playerRef.current.unMute();
-              }
-            }
-          }, 500);
-        } catch { /* ignore */ }
-      }
+      switchToVideo(state);
+    } else {
+      setProgress(state.progress);
+      setElapsedInVideo(state.elapsedInVideo);
     }
-  }, [onVideoChange]);
+  }, [switchToVideo]);
 
   useEffect(() => {
     const interval = setInterval(tick, 1000);
@@ -327,7 +359,7 @@ export default function VideoPlayer({ embed = false, onVideoChange }: Props) {
             <img
               src={overlay.imageUrl}
               alt="Channel Logo"
-              style={{ width: overlay.width }}
+              style={{ width: overlay.width, maxWidth: 'none', height: 'auto', flexShrink: 0 }}
               className="object-contain drop-shadow-2xl"
               onError={() => setOverlayImgError(true)}
             />

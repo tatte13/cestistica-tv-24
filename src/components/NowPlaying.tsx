@@ -56,8 +56,12 @@ export default function NowPlaying() {
                 >
                   {categoryLabels[currentVideo.category]}
                 </span>
-                <span className="text-xs text-gray-500 font-mono">
-                  Tempo rimasto: {formatTime(remaining)}
+                <span className="text-xs text-gray-500 font-mono flex items-center gap-1.5">
+                  {currentVideo.isLive ? (
+                    <><span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" /> In diretta</>
+                  ) : (
+                    `Tempo rimasto: ${formatTime(remaining)}`
+                  )}
                 </span>
               </div>
             </div>
